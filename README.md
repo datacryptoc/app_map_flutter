@@ -12,3 +12,4 @@ Para que funcione correctamente debemos acceder al archivo android > app > src >
 ```
 
 Donde se debe especificar la api personal de Google Maps.
+--prueba
