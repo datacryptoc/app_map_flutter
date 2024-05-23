@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'live_map_page.dart';
 import 'login_page.dart'; // Importa el archivo de la página de login
 
 void main() {
@@ -17,9 +16,9 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
       ),
       home: const LoginPage( // Mostrar LoginPage directamente
-        loginButtonColor: Color.fromARGB(255, 54, 98, 244),
-        createAccountButtonColor: Color.fromRGBO(25, 66, 247, 1), // Color naranja definido por RGB
-        textColor: Colors.white,
+        loginButtonColor: Color.fromARGB(255, 43, 116, 253),
+        createAccountButtonColor: Color.fromARGB(255, 43, 116, 253), // Color naranja definido por RGB
+        textColor: Color.fromARGB(255, 0, 0, 0),
       ),
     );
   }

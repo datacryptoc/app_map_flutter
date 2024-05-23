@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'live_map_page.dart';
+import 'init_map_menu.dart'; // Importa el nuevo archivo
+
 
 class LoginPage extends StatefulWidget {
   final Color loginButtonColor;
@@ -85,7 +86,7 @@ class _LoginPageState extends State<LoginPage> {
                     // Aquí puedes añadir la lógica de autenticación
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => const LiveMapPage()),
+                      MaterialPageRoute(builder: (context) => const InitMapMenu()), // Navegar a InitMapMenu
                     );
                   }
                 },
