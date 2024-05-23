@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'live_map_page.dart';
+import 'login_page.dart'; // Importa el archivo de la página de login
 
 void main() {
   runApp(const MyApp());
@@ -15,30 +16,10 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const HomePage(),
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Home Page'),
-      ),
-      body: Center(
-        child: ElevatedButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const LiveMapPage()),
-            );
-          },
-          child: const Text('VER MAPA EN VIVO'),
-        ),
+      home: const LoginPage( // Mostrar LoginPage directamente
+        loginButtonColor: Color.fromARGB(255, 54, 98, 244),
+        createAccountButtonColor: Color.fromRGBO(25, 66, 247, 1), // Color naranja definido por RGB
+        textColor: Colors.white,
       ),
     );
   }
