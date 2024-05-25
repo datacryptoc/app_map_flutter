@@ -17,9 +17,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   late GoogleMapController googleMapController;
   Position? position;
   LatLng? currentLocation;
-  LatLng? lastFetchedLocation;
   bool _isLoading = true;
-  bool _showPlaces = false; // Variable para controlar la visibilidad de lugares de interés
   String? _expandedImageUrl; // URL de la imagen ampliada
   StreamSubscription<Position>? _positionStream;
   final Set<Marker> _markers = {};
@@ -32,45 +30,41 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   final String apiKey = 'AIzaSyAg3io83juiYRwTzAukQiq0uXHRKfh8ARs'; // Usa la API key directamente
   String _mapStyle = '';
   static const double fetchThresholdDistance = 100; // Umbral de distancia en metros
+  bool _noPlacesFound = false; // Variable para manejar el estado cuando no se encuentran lugares
 
   @override
   void initState() {
     super.initState();
-    _initLocationTracking();
     _loadMapStyle();
+    _initLocationTracking();
   }
 
   Future<void> _loadMapStyle() async {
     _mapStyle = await rootBundle.loadString('assets/map_style.json');
   }
 
-  void _initLocationTracking() {
+  void _initLocationTracking() async {
+    Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    setState(() {
+      currentLocation = LatLng(position.latitude, position.longitude);
+      _updateMarkers();
+      _fetchNearbyPlaces(); // Filtrar lugares cercanos desde el inicio
+      _isLoading = false;
+    });
+
     _positionStream = Geolocator.getPositionStream().listen((Position position) {
       setState(() {
         currentLocation = LatLng(position.latitude, position.longitude);
         _updateMarkers();
-        if (!_isLoading) {
-          _updateCameraPosition(currentLocation!);
-        }
-        _isLoading = false;
+        _updateCameraPosition(currentLocation!);
       });
     });
   }
 
   void _updateMarkers() {
     _markers.clear();
-    _markers.add(Marker(
-      markerId: const MarkerId("current_location"),
-      position: currentLocation!,
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-    ));
-    if (_showPlaces) {
-      if (lastFetchedLocation == null || _distanceBetween(currentLocation!, lastFetchedLocation!) > fetchThresholdDistance) {
-        _fetchNearbyPlaces();
-      } else {
-        _addSavedMarkers();
-      }
-    }
+    // No añadir marcador para la ubicación actual, solo se mostrará el campo visual
+    _addSavedMarkers();
   }
 
   void _addSavedMarkers() {
@@ -80,33 +74,29 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
         position: _placePositions[i], // Usar la posición guardada
         infoWindow: InfoWindow(
           title: _placeNames[i],
-          onTap: () {
-            _onMarkerTapped(_placeIds[i]);
-          },
+          snippet: 'Lugar de interés',
         ),
         icon: BitmapDescriptor.defaultMarker,
       ));
     }
   }
 
-  double _distanceBetween(LatLng start, LatLng end) {
-    return Geolocator.distanceBetween(start.latitude, start.longitude, end.latitude, end.longitude);
-  }
-
-  Future<void> _fetchNearbyPlaces() async {
+  void _fetchNearbyPlaces() async {
     if (currentLocation != null && _apiCallsRemaining > 0) {
       final String url =
-          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${currentLocation!.latitude},${currentLocation!.longitude}&radius=300&type=tourist_attraction&key=$apiKey'; // Radio de 300 metros
+          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${currentLocation!.latitude},${currentLocation!.longitude}&radius=200&type=tourist_attraction&key=$apiKey'; // Radio de 300 metros
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final results = data['results'] as List;
         setState(() {
-          _placeNames = [];  // Limpiar la lista de nombres de lugares
-          _placeIds = [];    // Limpiar la lista de IDs de lugares
-          _placePositions = []; // Limpiar la lista de posiciones de lugares
-          _placePhotos = []; // Limpiar la lista de URLs de fotos
+          _placeNames = [];
+          _placeIds = [];
+          _placePositions = [];
+          _placePhotos = [];
+          _noPlacesFound = results.isEmpty; // Establecer el estado cuando no se encuentran lugares
+
           for (var place in results.take(5)) {
             final placeId = place['place_id'];
             final name = place['name'];
@@ -116,15 +106,15 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                 ? place['photos'][0]['photo_reference']
                 : null;
 
-            _placeNames.add(name);  // Añadir el nombre del lugar a la lista
-            _placeIds.add(placeId);  // Añadir el ID del lugar a la lista
-            _placePositions.add(LatLng(lat, lng)); // Añadir la posición del lugar a la lista
+            _placeNames.add(name);
+            _placeIds.add(placeId);
+            _placePositions.add(LatLng(lat, lng));
 
             if (photoReference != null) {
               final photoUrl = 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=$photoReference&key=$apiKey';
-              _placePhotos.add(photoUrl); // Añadir la URL de la foto a la lista
+              _placePhotos.add(photoUrl);
             } else {
-              _placePhotos.add(''); // Añadir una cadena vacía si no hay foto disponible
+              _placePhotos.add(''); // Añadir cadena vacía si no hay foto disponible
             }
 
             _markers.add(Marker(
@@ -132,15 +122,14 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
               position: LatLng(lat, lng),
               infoWindow: InfoWindow(
                 title: name,
-                onTap: () {
-                  _onMarkerTapped(placeId);
-                },
+                snippet: 'Lugar de interés',
               ),
               icon: BitmapDescriptor.defaultMarker,
             ));
           }
-          lastFetchedLocation = currentLocation;
-          _apiCallsRemaining--; // Decrementar el contador de llamadas a la API
+          if (_apiCallsRemaining > 0) {
+            _apiCallsRemaining--; // Decrementar el contador de llamadas a la API
+          }
         });
       } else {
         throw Exception('Failed to load nearby places');
@@ -148,11 +137,15 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
     }
   }
 
+  double _distanceBetween(LatLng start, LatLng end) {
+    return Geolocator.distanceBetween(start.latitude, start.longitude, end.latitude, end.longitude);
+  }
+
   void _updateCameraPosition(LatLng location) async {
     googleMapController.animateCamera(CameraUpdate.newCameraPosition(
       CameraPosition(
         target: location,
-        zoom: 16,
+        zoom: 17, // Aumentar el nivel de zoom
       ),
     ));
   }
@@ -178,20 +171,12 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
     });
   }
 
-  void _toggleShowPlaces() {
-    setState(() {
-      _showPlaces = !_showPlaces;
-      _selectedPlaceId = null;
-      _expandedImageUrl = null;
-      if (_showPlaces) {
-        if (lastFetchedLocation == null || _distanceBetween(currentLocation!, lastFetchedLocation!) > fetchThresholdDistance) {
-          _fetchNearbyPlaces();
-        } else {
-          _addSavedMarkers();
-        }
-      } else {
-        _updateMarkers();
-      }
+  void _refreshPlaces() {
+    Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high).then((Position position) {
+      setState(() {
+        currentLocation = LatLng(position.latitude, position.longitude);
+        _fetchNearbyPlaces();
+      });
     });
   }
 
@@ -233,131 +218,145 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
           ),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: currentLocation ?? const LatLng(0, 0),
-                    zoom: 16,
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: currentLocation ?? const LatLng(0, 0),
+                      zoom: 17, // Aumentar el nivel de zoom
+                    ),
+                    markers: _markers,
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: true,
+                    mapToolbarEnabled: false,
+                    zoomControlsEnabled: false,
+                    onMapCreated: _onMapCreated,
+                    mapType: MapType.normal,
+                    buildingsEnabled: false,
+                    trafficEnabled: false,
+                    compassEnabled: true, // Habilitar brújula para mostrar el campo visual
+                    scrollGesturesEnabled: false, // Desactivar la capacidad de mover el mapa
+                    tiltGesturesEnabled: false, // Desactivar la capacidad de inclinar el mapa
+                    rotateGesturesEnabled: false, // Desactivar la capacidad de rotar el mapa
+                    zoomGesturesEnabled: false, // Desactivar la capacidad de hacer zoom manualmente
                   ),
-                  markers: _markers,
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: true,
-                  mapToolbarEnabled: false,
-                  zoomControlsEnabled: false,
-                  onMapCreated: _onMapCreated,
-                  mapType: MapType.normal,
-                  buildingsEnabled: false,
-                  trafficEnabled: false,
-                ),
-          if (_showPlaces)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                color: Colors.white,
-                height: MediaQuery.of(context).size.height * 0.3,
-                child: _expandedImageUrl == null
-                    ? Column(
-                        children: [
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: _placeNames.length,
-                              itemBuilder: (context, index) {
-                                final isSelected = _placeIds[index] == _selectedPlaceId;
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: isSelected
-                                          ? const Color.fromARGB(255, 34, 130, 255)
-                                          : const Color.fromARGB(255, 109, 172, 255), // Fondo más oscuro si está seleccionado
-                                      foregroundColor: Colors.black, // Texto negro
-                                      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0), // Añadir padding horizontal
-                                    ),
-                                    onPressed: () {
-                                      _showMarkerInfoWindow(_placeIds[index]);
-                                      _expandImage(_placePhotos[index]);
-                                    },
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(_placeNames[index]),
-                                        if (_placePhotos[index].isNotEmpty)
-                                          const SizedBox(
-                                            width: 10, // Añadir espacio entre el texto y la imagen
+          ),
+          Container(
+            color: Colors.white,
+            height: MediaQuery.of(context).size.height * 0.3,
+            child: _expandedImageUrl == null
+                ? Column(
+                    children: [
+                      Expanded(
+                        child: _noPlacesFound
+                            ? Center(
+                                child: Text(
+                                  'No se han encontrado lugares de interés cerca de ti.',
+                                  style: TextStyle(fontSize: 16, color: Colors.black),
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: _placeNames.length,
+                                itemBuilder: (context, index) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color.fromARGB(255, 109, 172, 255), // Fondo del botón
+                                        foregroundColor: Colors.black, // Texto negro
+                                        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0), // Añadir padding horizontal
+                                      ),
+                                      onPressed: () {
+                                        _showMarkerInfoWindow(_placeIds[index]);
+                                        _expandImage(_placePhotos[index]);
+                                      },
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              _placeNames[index],
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 2,
+                                            ),
                                           ),
-                                        if (_placePhotos[index].isNotEmpty)
-                                          Image.network(
-                                            _placePhotos[index],
-                                            width: 50,
-                                            height: 50,
-                                            fit: BoxFit.cover,
-                                          ),
-                                      ],
+                                          const SizedBox(width: 10),
+                                          if (_placePhotos[index].isNotEmpty)
+                                            Image.network(
+                                              _placePhotos[index],
+                                              width: 50,
+                                              height: 50,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                return Container(
+                                                  width: 50,
+                                                  height: 50,
+                                                  color: Colors.grey, // Color de fondo si no se puede cargar la imagen
+                                                );
+                                              },
+                                            ),
+                                          if (_placePhotos[index].isEmpty)
+                                            Container(
+                                              width: 50,
+                                              height: 50,
+                                              color: Colors.grey, // Color de fondo si no hay imagen disponible
+                                            ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          ElevatedButton(
-                            onPressed: _toggleShowPlaces,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color.fromARGB(255, 0, 0, 0), // Color del botón de ocultar lugares
-                              foregroundColor: Colors.white, // Color del texto del botón de ocultar lugares
-                            ),
-                            child: const Text('OCULTAR LUGARES DE INTERÉS'),
-                          ),
-                        ],
-                      )
-                    : Stack(
-                        children: [
-                          Center(
-                            child: Image.network(
-                              _expandedImageUrl!,
+                                  );
+                                },
+                              ),
+                      ),
+                      ElevatedButton(
+                        onPressed: _refreshPlaces,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue, // Color del botón de refrescar lugares
+                          foregroundColor: Colors.white, // Color del texto del botón de refrescar lugares
+                        ),
+                        child: const Text('REFRESCAR LUGARES DE INTERÉS'),
+                      ),
+                    ],
+                  )
+                : Stack(
+                    children: [
+                      Center(
+                        child: Image.network(
+                          _expandedImageUrl!,
+                          width: double.infinity,
+                          height: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
                               width: double.infinity,
                               height: double.infinity,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          Center(
-                            child: IconButton(
-                              icon: const Icon(Icons.play_arrow, color: Colors.white, size: 50),
-                              onPressed: () {
-                                // Aquí puedes agregar la lógica para reproducir audio
-                              },
-                            ),
-                          ),
-                          Positioned(
-                            top: 10,
-                            right: 10,
-                            child: IconButton(
-                              icon: const Icon(Icons.close, color: Colors.black, size: 30),
-                              onPressed: _closeImage,
-                            ),
-                          ),
-                        ],
+                              color: Colors.grey, // Color de fondo si no se puede cargar la imagen
+                            );
+                          },
+                        ),
                       ),
-              ),
-            ),
-          if (!_showPlaces)
-            Positioned(
-              bottom: 20,
-              left: 20,
-              right: 20,
-              child: ElevatedButton(
-                onPressed: _toggleShowPlaces,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(255, 0, 0, 0), // Color del botón de mostrar lugares
-                  foregroundColor: Colors.white, // Color del texto del botón de mostrar lugares
-                ),
-                child: const Text('MOSTRAR LUGARES DE INTERÉS'),
-              ),
-            ),
+                      Center(
+                        child: IconButton(
+                          icon: const Icon(Icons.play_arrow, color: Colors.white, size: 50),
+                          onPressed: () {
+                            // Aquí puedes agregar la lógica para reproducir audio
+                          },
+                        ),
+                      ),
+                      Positioned(
+                        top: 10,
+                        right: 10,
+                        child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.black, size: 30),
+                          onPressed: _closeImage,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ],
       ),
     );
