@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 
 class LiveLocationPage extends StatefulWidget {
   const LiveLocationPage({super.key});
@@ -19,8 +20,12 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   LatLng? currentLocation;
   bool _isLoading = true;
   String? _expandedImageUrl; // URL de la imagen ampliada
+  String? _expandedPlaceName; // Nombre del lugar ampliado
   StreamSubscription<Position>? _positionStream;
   final Set<Marker> _markers = {};
+  final List<LatLng> _polylineCoordinates = [];
+  PolylinePoints polylinePoints = PolylinePoints();
+  final Set<Polyline> _polylines = {};
   List<String> _placeNames = [];
   List<String> _placeIds = [];
   List<LatLng> _placePositions = []; // Lista para almacenar las posiciones de los lugares de interés
@@ -72,11 +77,8 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
       _markers.add(Marker(
         markerId: MarkerId(_placeIds[i]),
         position: _placePositions[i], // Usar la posición guardada
-        infoWindow: InfoWindow(
-          title: _placeNames[i],
-          snippet: 'Lugar de interés',
-        ),
-        icon: BitmapDescriptor.defaultMarker,
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+            _selectedPlaceId == _placeIds[i] ? BitmapDescriptor.hueBlue : BitmapDescriptor.hueRed),
       ));
     }
   }
@@ -84,7 +86,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   void _fetchNearbyPlaces() async {
     if (currentLocation != null && _apiCallsRemaining > 0) {
       final String url =
-          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${currentLocation!.latitude},${currentLocation!.longitude}&radius=200&type=tourist_attraction&key=$apiKey'; // Radio de 300 metros
+          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${currentLocation!.latitude},${currentLocation!.longitude}&radius=200&type=tourist_attraction&key=$apiKey'; // Radio de 200 metros
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
@@ -120,11 +122,10 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
             _markers.add(Marker(
               markerId: MarkerId(placeId),
               position: LatLng(lat, lng),
-              infoWindow: InfoWindow(
-                title: name,
-                snippet: 'Lugar de interés',
-              ),
-              icon: BitmapDescriptor.defaultMarker,
+              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+              onTap: () {
+                _selectPlace(placeId, LatLng(lat, lng));
+              },
             ));
           }
           if (_apiCallsRemaining > 0) {
@@ -135,6 +136,47 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
         throw Exception('Failed to load nearby places');
       }
     }
+  }
+
+  void _selectPlace(String placeId, LatLng destination) {
+    setState(() {
+      _selectedPlaceId = placeId;
+      _updateMarkers();
+    });
+    _drawRoute(destination);
+  }
+
+  Future<void> _drawRoute(LatLng destination) async {
+    _polylineCoordinates.clear();
+    PolylineResult result = await polylinePoints.getRouteBetweenCoordinates(
+      apiKey,
+      PointLatLng(currentLocation!.latitude, currentLocation!.longitude),
+      PointLatLng(destination.latitude, destination.longitude),
+      travelMode: TravelMode.walking,
+    );
+
+    if (result.points.isNotEmpty) {
+      result.points.forEach((PointLatLng point) {
+        _polylineCoordinates.add(LatLng(point.latitude, point.longitude));
+      });
+
+      setState(() {
+        _polylines.add(Polyline(
+          polylineId: PolylineId('route'),
+          color: Colors.blue,
+          width: 5,
+          points: _polylineCoordinates,
+        ));
+      });
+    }
+  }
+
+  void _clearRoute() {
+    setState(() {
+      _polylines.clear();
+      _selectedPlaceId = null;
+      _updateMarkers();
+    });
   }
 
   double _distanceBetween(LatLng start, LatLng end) {
@@ -158,19 +200,6 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
     }
   }
 
-  void _showMarkerInfoWindow(String markerId) {
-    googleMapController.showMarkerInfoWindow(MarkerId(markerId));
-    setState(() {
-      _selectedPlaceId = markerId;
-    });
-  }
-
-  void _onMarkerTapped(String markerId) {
-    setState(() {
-      _selectedPlaceId = markerId;
-    });
-  }
-
   void _refreshPlaces() {
     Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high).then((Position position) {
       setState(() {
@@ -180,15 +209,18 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
     });
   }
 
-  void _expandImage(String imageUrl) {
+  void _expandImage(String imageUrl, String placeName) {
     setState(() {
       _expandedImageUrl = imageUrl;
+      _expandedPlaceName = placeName;
     });
   }
 
   void _closeImage() {
     setState(() {
       _expandedImageUrl = null;
+      _expandedPlaceName = null;
+      _clearRoute();
     });
   }
 
@@ -232,7 +264,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                     myLocationEnabled: true,
                     myLocationButtonEnabled: true,
                     mapToolbarEnabled: false,
-                    zoomControlsEnabled: false,
+                    zoomControlsEnabled: true,
                     onMapCreated: _onMapCreated,
                     mapType: MapType.normal,
                     buildingsEnabled: false,
@@ -242,6 +274,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                     tiltGesturesEnabled: false, // Desactivar la capacidad de inclinar el mapa
                     rotateGesturesEnabled: false, // Desactivar la capacidad de rotar el mapa
                     zoomGesturesEnabled: false, // Desactivar la capacidad de hacer zoom manualmente
+                    polylines: _polylines, // Añadir las polilíneas al mapa
                   ),
           ),
           Container(
@@ -270,8 +303,8 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                                         padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0), // Añadir padding horizontal
                                       ),
                                       onPressed: () {
-                                        _showMarkerInfoWindow(_placeIds[index]);
-                                        _expandImage(_placePhotos[index]);
+                                        _expandImage(_placePhotos[index], _placeNames[index]);
+                                        _selectPlace(_placeIds[index], _placePositions[index]);
                                       },
                                       child: Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -338,20 +371,37 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                           },
                         ),
                       ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(
+                          color: Colors.black54,
+                          padding: const EdgeInsets.all(1.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _expandedPlaceName ?? '',
+                                  style: TextStyle(fontSize: 15, color: Colors.white),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                                onPressed: _closeImage,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                       Center(
                         child: IconButton(
                           icon: const Icon(Icons.play_arrow, color: Colors.white, size: 50),
                           onPressed: () {
                             // Aquí puedes agregar la lógica para reproducir audio
                           },
-                        ),
-                      ),
-                      Positioned(
-                        top: 10,
-                        right: 10,
-                        child: IconButton(
-                          icon: const Icon(Icons.close, color: Colors.black, size: 30),
-                          onPressed: _closeImage,
                         ),
                       ),
                     ],
