@@ -20,7 +20,6 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   LatLng? lastFetchedLocation;
   bool _isLoading = true;
   bool _showPlaces = false; // Variable para controlar la visibilidad de lugares de interés
-  bool _isImageExpanded = false; // Variable para controlar si la imagen está ampliada
   String? _expandedImageUrl; // URL de la imagen ampliada
   StreamSubscription<Position>? _positionStream;
   final Set<Marker> _markers = {};
@@ -183,7 +182,6 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
     setState(() {
       _showPlaces = !_showPlaces;
       _selectedPlaceId = null;
-      _isImageExpanded = false;
       _expandedImageUrl = null;
       if (_showPlaces) {
         if (lastFetchedLocation == null || _distanceBetween(currentLocation!, lastFetchedLocation!) > fetchThresholdDistance) {
@@ -199,14 +197,12 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
 
   void _expandImage(String imageUrl) {
     setState(() {
-      _isImageExpanded = true;
       _expandedImageUrl = imageUrl;
     });
   }
 
   void _closeImage() {
     setState(() {
-      _isImageExpanded = false;
       _expandedImageUrl = null;
     });
   }
@@ -264,55 +260,88 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
               child: Container(
                 color: Colors.white,
                 height: MediaQuery.of(context).size.height * 0.3,
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _placeNames.length,
-                        itemBuilder: (context, index) {
-                          final isSelected = _placeIds[index] == _selectedPlaceId;
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isSelected
-                                    ? const Color.fromARGB(255, 34, 130, 255)
-                                    : const Color.fromARGB(255, 109, 172, 255), // Fondo más oscuro si está seleccionado
-                                foregroundColor: Colors.black, // Texto negro
-                                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0), // Añadir padding horizontal
-                              ),
-                              onPressed: () {
-                                _showMarkerInfoWindow(_placeIds[index]);
-                                _expandImage(_placePhotos[index]);
+                child: _expandedImageUrl == null
+                    ? Column(
+                        children: [
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: _placeNames.length,
+                              itemBuilder: (context, index) {
+                                final isSelected = _placeIds[index] == _selectedPlaceId;
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: isSelected
+                                          ? const Color.fromARGB(255, 34, 130, 255)
+                                          : const Color.fromARGB(255, 109, 172, 255), // Fondo más oscuro si está seleccionado
+                                      foregroundColor: Colors.black, // Texto negro
+                                      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0), // Añadir padding horizontal
+                                    ),
+                                    onPressed: () {
+                                      _showMarkerInfoWindow(_placeIds[index]);
+                                      _expandImage(_placePhotos[index]);
+                                    },
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(_placeNames[index]),
+                                        if (_placePhotos[index].isNotEmpty)
+                                          const SizedBox(
+                                            width: 10, // Añadir espacio entre el texto y la imagen
+                                          ),
+                                        if (_placePhotos[index].isNotEmpty)
+                                          Image.network(
+                                            _placePhotos[index],
+                                            width: 50,
+                                            height: 50,
+                                            fit: BoxFit.cover,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
                               },
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(_placeNames[index]),
-                                  if (_placePhotos[index].isNotEmpty)
-                                    const SizedBox(
-                                      width: 10, // Añadir espacio entre el texto y la imagen
-                                    ),
-                                  if (_placePhotos[index].isNotEmpty)
-                                    Image.network(
-                                      _placePhotos[index],
-                                      width: 50,
-                                      height: 50,
-                                      fit: BoxFit.cover,
-                                    ),
-                                ],
-                              ),
                             ),
-                          );
-                        },
+                          ),
+                          ElevatedButton(
+                            onPressed: _toggleShowPlaces,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color.fromARGB(255, 0, 0, 0), // Color del botón de ocultar lugares
+                              foregroundColor: Colors.white, // Color del texto del botón de ocultar lugares
+                            ),
+                            child: const Text('OCULTAR LUGARES DE INTERÉS'),
+                          ),
+                        ],
+                      )
+                    : Stack(
+                        children: [
+                          Center(
+                            child: Image.network(
+                              _expandedImageUrl!,
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          Center(
+                            child: IconButton(
+                              icon: const Icon(Icons.play_arrow, color: Colors.white, size: 50),
+                              onPressed: () {
+                                // Aquí puedes agregar la lógica para reproducir audio
+                              },
+                            ),
+                          ),
+                          Positioned(
+                            top: 10,
+                            right: 10,
+                            child: IconButton(
+                              icon: const Icon(Icons.close, color: Colors.black, size: 30),
+                              onPressed: _closeImage,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    ElevatedButton(
-                      onPressed: _toggleShowPlaces,
-                      child: const Text('OCULTAR LUGARES DE INTERÉS'),
-                    ),
-                  ],
-                ),
               ),
             ),
           if (!_showPlaces)
@@ -322,30 +351,11 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
               right: 20,
               child: ElevatedButton(
                 onPressed: _toggleShowPlaces,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color.fromARGB(255, 0, 0, 0), // Color del botón de mostrar lugares
+                  foregroundColor: Colors.white, // Color del texto del botón de mostrar lugares
+                ),
                 child: const Text('MOSTRAR LUGARES DE INTERÉS'),
-              ),
-            ),
-          if (_isImageExpanded)
-            Center(
-              child: Stack(
-                children: [
-                  Center(
-                    child: Image.network(
-                      _expandedImageUrl!,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                    ),
-                  ),
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                      onPressed: _closeImage,
-                    ),
-                  ),
-                ],
               ),
             ),
         ],
