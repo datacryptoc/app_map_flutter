@@ -18,6 +18,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   late GoogleMapController googleMapController;
   Position? position;
   LatLng? currentLocation;
+  LatLng? lastFetchedLocation; // Última ubicación desde la cual se hizo la llamada a la API
   bool _isLoading = true;
   String? _expandedImageUrl; // URL de la imagen ampliada
   String? _expandedPlaceName; // Nombre del lugar ampliado
@@ -30,12 +31,20 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   List<String> _placeIds = [];
   List<LatLng> _placePositions = []; // Lista para almacenar las posiciones de los lugares de interés
   List<String> _placePhotos = []; // Lista para almacenar las URLs de las fotos de los lugares de interés
+  List<int> _placeDistances = []; // Lista para almacenar las distancias a los lugares de interés
   int _apiCallsRemaining = 5; // Contador de llamadas a la API
   String? _selectedPlaceId; // ID del lugar seleccionado
   final String apiKey = 'AIzaSyAg3io83juiYRwTzAukQiq0uXHRKfh8ARs'; // Usa la API key directamente
   String _mapStyle = '';
-  static const double fetchThresholdDistance = 100; // Umbral de distancia en metros
+  static const double fetchThresholdDistance = 200; // Umbral de distancia en metros
   bool _noPlacesFound = false; // Variable para manejar el estado cuando no se encuentran lugares
+
+  // Parámetros de colores
+  final Color buttonBackgroundColor = Color.fromARGB(255, 132, 184, 252);
+  final Color buttonTextColor = Colors.black;
+  final Color refreshButtonColor = Color.fromARGB(255, 25, 89, 173);
+  final Color refreshButtonTextColor = Colors.white;
+  final Color mapPolylineColor = Color.fromARGB(255, 132, 184, 252);
 
   @override
   void initState() {
@@ -52,6 +61,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
     Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
     setState(() {
       currentLocation = LatLng(position.latitude, position.longitude);
+      lastFetchedLocation = currentLocation; // Inicializar la última ubicación de fetch
       _updateMarkers();
       _fetchNearbyPlaces(); // Filtrar lugares cercanos desde el inicio
       _isLoading = false;
@@ -62,13 +72,20 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
         currentLocation = LatLng(position.latitude, position.longitude);
         _updateMarkers();
         _updateCameraPosition(currentLocation!);
+        if (_selectedPlaceId != null) {
+          // Si hay un lugar seleccionado, actualizar la ruta en tiempo real
+          final selectedPlaceIndex = _placeIds.indexOf(_selectedPlaceId!);
+          if (selectedPlaceIndex != -1) {
+            _drawRoute(_placePositions[selectedPlaceIndex]);
+          }
+        }
+        _reorderPlacesByCurrentLocation();
       });
     });
   }
 
   void _updateMarkers() {
     _markers.clear();
-    // No añadir marcador para la ubicación actual, solo se mostrará el campo visual
     _addSavedMarkers();
   }
 
@@ -86,7 +103,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   void _fetchNearbyPlaces() async {
     if (currentLocation != null && _apiCallsRemaining > 0) {
       final String url =
-          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${currentLocation!.latitude},${currentLocation!.longitude}&radius=200&type=tourist_attraction&key=$apiKey'; // Radio de 200 metros
+          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${currentLocation!.latitude},${currentLocation!.longitude}&radius=$fetchThresholdDistance&type=tourist_attraction&key=$apiKey'; // Radio de 200 metros
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
@@ -97,6 +114,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
           _placeIds = [];
           _placePositions = [];
           _placePhotos = [];
+          _placeDistances = [];
           _noPlacesFound = results.isEmpty; // Establecer el estado cuando no se encuentran lugares
 
           for (var place in results.take(5)) {
@@ -108,9 +126,12 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                 ? place['photos'][0]['photo_reference']
                 : null;
 
+            int distance = _distanceBetween(currentLocation!, LatLng(lat, lng)).round();
+
             _placeNames.add(name);
             _placeIds.add(placeId);
             _placePositions.add(LatLng(lat, lng));
+            _placeDistances.add(distance);
 
             if (photoReference != null) {
               final photoUrl = 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=$photoReference&key=$apiKey';
@@ -118,16 +139,11 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
             } else {
               _placePhotos.add(''); // Añadir cadena vacía si no hay foto disponible
             }
-
-            _markers.add(Marker(
-              markerId: MarkerId(placeId),
-              position: LatLng(lat, lng),
-              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-              onTap: () {
-                _selectPlace(placeId, LatLng(lat, lng));
-              },
-            ));
           }
+
+          // Ordenar los lugares por distancia
+          _sortPlacesByDistance();
+
           if (_apiCallsRemaining > 0) {
             _apiCallsRemaining--; // Decrementar el contador de llamadas a la API
           }
@@ -136,6 +152,26 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
         throw Exception('Failed to load nearby places');
       }
     }
+  }
+
+  void _sortPlacesByDistance() {
+    List<int> indices = List.generate(_placeDistances.length, (i) => i);
+    indices.sort((a, b) => _placeDistances[a].compareTo(_placeDistances[b]));
+
+    _placeNames = [for (var i in indices) _placeNames[i]];
+    _placeIds = [for (var i in indices) _placeIds[i]];
+    _placePositions = [for (var i in indices) _placePositions[i]];
+    _placePhotos = [for (var i in indices) _placePhotos[i]];
+    _placeDistances = [for (var i in indices) _placeDistances[i]];
+  }
+
+  void _reorderPlacesByCurrentLocation() {
+    setState(() {
+      for (int i = 0; i < _placePositions.length; i++) {
+        _placeDistances[i] = _distanceBetween(currentLocation!, _placePositions[i]).round();
+      }
+      _sortPlacesByDistance();
+    });
   }
 
   void _selectPlace(String placeId, LatLng destination) {
@@ -163,10 +199,12 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
       setState(() {
         _polylines.add(Polyline(
           polylineId: PolylineId('route'),
-          color: Colors.blue,
+          color: mapPolylineColor,
           width: 5,
           points: _polylineCoordinates,
         ));
+        // Actualizar la distancia al destino
+        _updateDistances();
       });
     }
   }
@@ -181,6 +219,22 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
 
   double _distanceBetween(LatLng start, LatLng end) {
     return Geolocator.distanceBetween(start.latitude, start.longitude, end.latitude, end.longitude);
+  }
+
+  void _updateDistances() {
+    if (_selectedPlaceId != null) {
+      final selectedPlaceIndex = _placeIds.indexOf(_selectedPlaceId!);
+      if (selectedPlaceIndex != -1) {
+        int distance = _distanceBetween(currentLocation!, _placePositions[selectedPlaceIndex]).round();
+        setState(() {
+          _placeDistances[selectedPlaceIndex] = distance;
+          if (_expandedPlaceName != null) {
+            _expandedPlaceName =
+                '${_placeNames[selectedPlaceIndex]} (${distance} m)';
+          }
+        });
+      }
+    }
   }
 
   void _updateCameraPosition(LatLng location) async {
@@ -204,15 +258,22 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
     Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high).then((Position position) {
       setState(() {
         currentLocation = LatLng(position.latitude, position.longitude);
-        _fetchNearbyPlaces();
+        if (lastFetchedLocation == null || _distanceBetween(currentLocation!, lastFetchedLocation!) > fetchThresholdDistance) {
+          lastFetchedLocation = currentLocation;
+          _fetchNearbyPlaces();
+        } else {
+          _reorderPlacesByCurrentLocation();
+        }
       });
     });
   }
 
   void _expandImage(String imageUrl, String placeName) {
     setState(() {
+      final index = _placeNames.indexOf(placeName);
+      final distance = _placeDistances[index];
       _expandedImageUrl = imageUrl;
-      _expandedPlaceName = placeName;
+      _expandedPlaceName = '$placeName (${distance} m)';
     });
   }
 
@@ -236,14 +297,14 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Live Map"),
+        title: const Text("Near Places"),
         centerTitle: true,
         actions: [
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: Center(
               child: Text(
-                'Llamadas restantes: $_apiCallsRemaining',
+                'Refresh: $_apiCallsRemaining',
                 style: const TextStyle(fontSize: 16),
               ),
             ),
@@ -294,12 +355,13 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                             : ListView.builder(
                                 itemCount: _placeNames.length,
                                 itemBuilder: (context, index) {
+                                  final placeNameWithDistance = '${_placeNames[index]} (${_placeDistances[index]} m)';
                                   return Padding(
                                     padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
                                     child: ElevatedButton(
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color.fromARGB(255, 109, 172, 255), // Fondo del botón
-                                        foregroundColor: Colors.black, // Texto negro
+                                        backgroundColor: buttonBackgroundColor, // Fondo del botón
+                                        foregroundColor: buttonTextColor, // Texto negro
                                         padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0), // Añadir padding horizontal
                                       ),
                                       onPressed: () {
@@ -311,7 +373,7 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                                         children: [
                                           Expanded(
                                             child: Text(
-                                              _placeNames[index],
+                                              placeNameWithDistance,
                                               overflow: TextOverflow.ellipsis,
                                               maxLines: 2,
                                             ),
@@ -347,10 +409,20 @@ class _LiveLocationPageState extends State<LiveLocationPage> {
                       ElevatedButton(
                         onPressed: _refreshPlaces,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue, // Color del botón de refrescar lugares
-                          foregroundColor: Colors.white, // Color del texto del botón de refrescar lugares
+                          backgroundColor: refreshButtonColor, // Color del botón de refrescar lugares
+                          foregroundColor: refreshButtonTextColor, // Color del texto del botón de refrescar lugares
                         ),
-                        child: const Text('REFRESCAR LUGARES DE INTERÉS'),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('REFRESCAR LUGARES DE INTERÉS'),
+                            SizedBox(width: 10),
+                            Text(
+                              '(${_apiCallsRemaining.toString()})',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   )

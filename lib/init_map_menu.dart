@@ -21,6 +21,11 @@ class _InitMapMenuState extends State<InitMapMenu> {
   final Set<Marker> _markers = {};
   String _mapStyle = '';
 
+  // Parametros de colores
+  final Color iconColor = Color.fromARGB(255, 132, 184, 252);
+  final Color textColor = Colors.black;
+  final Color backgroundColor = Color.fromARGB(255, 132, 184, 252);
+
   @override
   void initState() {
     super.initState();
@@ -83,7 +88,7 @@ class _InitMapMenuState extends State<InitMapMenu> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Init Map Menu"),
+        title: const Text("Main GPS"),
         centerTitle: true,
       ),
       body: Stack(
@@ -109,8 +114,11 @@ class _InitMapMenuState extends State<InitMapMenu> {
             left: 20,
             top: 100,
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                FloatingActionButton(
+                _buildFloatingActionButton(
+                  icon: Icons.shuffle,
+                  label: "Near Places",
                   onPressed: () {
                     // Navegar a LiveLocationPage
                     Navigator.push(
@@ -118,23 +126,55 @@ class _InitMapMenuState extends State<InitMapMenu> {
                       MaterialPageRoute(builder: (context) => const LiveLocationPage()),
                     );
                   },
-                  child: Icon(Icons.home), // Icono aleatorio
                 ),
                 SizedBox(height: 20),
-                FloatingActionButton(
+                _buildFloatingActionButton(
+                  icon: Icons.smart_toy,
+                  label: "IA Tours",
                   onPressed: () {
                     // Acción del segundo botón
                   },
-                  child: Icon(Icons.search), // Icono aleatorio
                 ),
                 SizedBox(height: 20),
-                FloatingActionButton(
+                _buildFloatingActionButton(
+                  icon: Icons.person,
+                  label: "Human Tours",
                   onPressed: () {
                     // Acción del tercer botón
                   },
-                  child: Icon(Icons.settings), // Icono aleatorio
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingActionButton({required IconData icon, required String label, required VoidCallback onPressed}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: [
+          FloatingActionButton(
+            onPressed: onPressed,
+            backgroundColor: iconColor,
+            child: Icon(icon),
+          ),
+          SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(4.0),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 16,
+                color: textColor,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],

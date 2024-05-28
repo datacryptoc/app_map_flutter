@@ -13,3 +13,6 @@ Para que funcione correctamente debemos acceder al archivo android > app > src >
 
 Donde se debe especificar la api personal de Google Maps.
 --prueba
+
+
+API_JUANJO: AIzaSyAg3io83juiYRwTzAukQiq0uXHRKfh8ARs
